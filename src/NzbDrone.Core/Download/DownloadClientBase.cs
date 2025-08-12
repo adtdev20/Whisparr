@@ -57,7 +57,6 @@ namespace NzbDrone.Core.Download
                 }
             })
             .Build();
-
         public abstract string Name { get; }
 
         public Type ConfigContract => typeof(TSettings);

@@ -6,6 +6,7 @@ using NzbDrone.Core.Datastore;
 using NzbDrone.Core.MediaFiles;
 using NzbDrone.Core.Messaging.Events;
 using NzbDrone.Core.Movies.AlternativeTitles;
+using NzbDrone.Core.Movies.Credits;
 using NzbDrone.Core.Profiles.Qualities;
 using NzbDrone.Core.Qualities;
 
@@ -26,6 +27,7 @@ namespace NzbDrone.Core.Movies
         List<Movie> MoviesBetweenDates(DateTime start, DateTime end, bool includeUnmonitored);
         PagingSpec<Movie> MoviesWithoutFiles(PagingSpec<Movie> pagingSpec);
         List<Movie> GetMoviesByFileId(int fileId);
+        List<Movie> GetMoviesByFileId(IEnumerable<int> fileId);
         PagingSpec<Movie> MoviesWhereCutoffUnmet(PagingSpec<Movie> pagingSpec, List<QualitiesBelowCutoff> qualitiesBelowCutoff);
         Movie FindByPath(string path);
         Dictionary<int, string> AllMoviePaths();
@@ -35,6 +37,7 @@ namespace NzbDrone.Core.Movies
         Dictionary<int, List<int>> AllMovieTags();
         bool ExistsByMetadataId(int metadataId);
         HashSet<int> AllMovieWithCollectionsTmdbIds();
+        void SetFileId(List<Movie> movies);
     }
 
     public class MovieRepository : BasicRepository<Movie>, IMovieRepository
@@ -98,8 +101,7 @@ namespace NzbDrone.Core.Movies
                 {
                     movie.MovieFile = file;
                     movie.MovieMetadata = metadata;
-                    movie.QualityProfile = profiles[movie.QualityProfileId];
-
+                    movie.QualityProfile = profiles.ContainsKey(movie.QualityProfileId) ? profiles[movie.QualityProfileId] : profiles.First().Value;
                     return movie;
                 });
 
@@ -122,7 +124,7 @@ namespace NzbDrone.Core.Movies
                 {
                     movie.MovieFile = file;
                     movie.MovieMetadata = metadata;
-                    movie.QualityProfile = profiles[movie.QualityProfileId];
+                    movie.QualityProfile = profiles.ContainsKey(movie.QualityProfileId) ? profiles[movie.QualityProfileId] : profiles.First().Value;
 
                     return movie;
                 });
@@ -203,7 +205,8 @@ namespace NzbDrone.Core.Movies
         {
             var builder = new SqlBuilder(_database.DatabaseType)
                 .Join<Movie, MovieMetadata>((m, p) => m.MovieMetadataId == p.Id)
-                .Where($"\"MovieMetadata\".\"Credits\" LIKE \'%{performerForeignId}%\'");
+                .Join<MovieMetadata, Credit>((m, p) => m.Id == p.MovieMetadataId)
+                .Where<Credit>(x => x.PerformerForeignId == performerForeignId);
 
             return _database.QueryJoined<Movie, MovieMetadata>(
                 builder,
@@ -239,6 +242,11 @@ namespace NzbDrone.Core.Movies
         public List<Movie> GetMoviesByFileId(int fileId)
         {
             return Query(x => x.MovieFileId == fileId);
+        }
+
+        public List<Movie> GetMoviesByFileId(IEnumerable<int> ids)
+        {
+            return Query(x => ids.Contains(x.MovieFileId));
         }
 
         public List<Movie> MoviesBetweenDates(DateTime start, DateTime end, bool includeUnmonitored)
@@ -352,6 +360,11 @@ namespace NzbDrone.Core.Movies
             {
                 return conn.Query<int>("SELECT \"TmdbId\" FROM \"MovieMetadata\" JOIN \"Movies\" ON (\"Movies\".\"MovieMetadataId\" = \"MovieMetadata\".\"Id\") WHERE \"CollectionTmdbId\" > 0").ToHashSet();
             }
+        }
+
+        public void SetFileId(List<Movie> movies)
+        {
+            SetFields(movies, m => m.MovieFileId);
         }
     }
 }

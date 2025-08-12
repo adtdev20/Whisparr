@@ -2,6 +2,7 @@ import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
 import Alert from 'Components/Alert';
+import Delayed from 'Components/Delayed';
 import FieldSet from 'Components/FieldSet';
 import Icon from 'Components/Icon';
 import Label from 'Components/Label';
@@ -17,7 +18,6 @@ import PageToolbarSeparator from 'Components/Page/Toolbar/PageToolbarSeparator';
 import Tooltip from 'Components/Tooltip/Tooltip';
 import { icons, kinds, sizes, tooltipPositions } from 'Helpers/Props';
 import MovieHeadshot from 'Movie/MovieHeadshot';
-import MovieInteractiveSearchModalConnector from 'Movie/Search/MovieInteractiveSearchModalConnector';
 import DeletePerformerModalConnector from 'Performer/Delete/DeletePerformerModalConnector';
 import EditPerformerModalConnector from 'Performer/Edit/EditPerformerModalConnector';
 import { getPerformerStatusDetails } from 'Performer/PerformerStatus';
@@ -56,7 +56,6 @@ class PerformerDetails extends Component {
     this.state = {
       isEditMovieModalOpen: false,
       isDeleteMovieModalOpen: false,
-      isInteractiveSearchModalOpen: false,
       allExpanded: false,
       allCollapsed: false,
       expandedState: {},
@@ -99,14 +98,6 @@ class PerformerDetails extends Component {
     this.setState({ isEditMovieModalOpen: false });
   };
 
-  onInteractiveSearchPress = () => {
-    this.setState({ isInteractiveSearchModalOpen: true });
-  };
-
-  onInteractiveSearchModalClose = () => {
-    this.setState({ isInteractiveSearchModalOpen: false });
-  };
-
   onTitleMeasure = ({ width }) => {
     this.setState({ titleWidth: width });
   };
@@ -140,8 +131,7 @@ class PerformerDetails extends Component {
       touchStart < 50 ||
       this.props.isSidebarVisible ||
       this.state.isDeleteMovieModalOpen ||
-      this.state.isEditMovieModalOpen ||
-      this.state.isInteractiveSearchModalOpen
+      this.state.isEditMovieModalOpen
     ) {
       return;
     }
@@ -238,7 +228,6 @@ class PerformerDetails extends Component {
     const {
       isDeleteMovieModalOpen,
       isEditMovieModalOpen,
-      isInteractiveSearchModalOpen,
       expandedState,
       allExpanded,
       allCollapsed
@@ -278,14 +267,6 @@ class PerformerDetails extends Component {
               isSpinning={isSearching}
               title={undefined}
               onPress={onSearchPress}
-            />
-
-            <PageToolbarButton
-              label={translate('InteractiveSearch')}
-              iconName={icons.INTERACTIVE}
-              isSpinning={isSearching}
-              title={undefined}
-              onPress={this.onInteractiveSearchPress}
             />
 
             <PageToolbarSeparator />
@@ -576,13 +557,15 @@ class PerformerDetails extends Component {
                   <div>
                     {studios.map((studio) => {
                       return (
-                        <PerformerDetailsStudioConnector
-                          key={studio.foreignId}
-                          performerId={id}
-                          studioForeignId={studio.foreignId}
-                          isExpanded={expandedState[studio.foreignId]}
-                          onExpandPress={this.onExpandPress}
-                        />
+                        <Delayed key={studio.foreignId} waitBeforeShow={50}>
+                          <PerformerDetailsStudioConnector
+                            key={studio.foreignId}
+                            performerId={id}
+                            studioForeignId={studio.foreignId}
+                            isExpanded={expandedState[studio.foreignId]}
+                            onExpandPress={this.onExpandPress}
+                          />
+                        </Delayed>
                       );
                     })
                     }
@@ -605,11 +588,6 @@ class PerformerDetails extends Component {
             onModalClose={this.onEditMovieModalClose}
           />
 
-          <MovieInteractiveSearchModalConnector
-            isOpen={isInteractiveSearchModalOpen}
-            movieId={id}
-            onModalClose={this.onInteractiveSearchModalClose}
-          />
         </PageContentBody>
       </PageContent>
     );

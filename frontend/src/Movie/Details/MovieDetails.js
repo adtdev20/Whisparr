@@ -6,7 +6,6 @@ import Alert from 'Components/Alert';
 import FieldSet from 'Components/FieldSet';
 import Icon from 'Components/Icon';
 import InfoLabel from 'Components/InfoLabel';
-import IconButton from 'Components/Link/IconButton';
 import Marquee from 'Components/Marquee';
 import Measure from 'Components/Measure';
 import MonitorToggleButton from 'Components/MonitorToggleButton';
@@ -33,7 +32,6 @@ import OrganizePreviewModalConnector from 'Organize/OrganizePreviewModalConnecto
 import ScenePoster from 'Scene/ScenePoster';
 import QualityProfileNameConnector from 'Settings/Profiles/Quality/QualityProfileNameConnector';
 import fonts from 'Styles/Variables/fonts';
-import * as keyCodes from 'Utilities/Constants/keyCodes';
 import formatRuntime from 'Utilities/Date/formatRuntime';
 import formatBytes from 'Utilities/Number/formatBytes';
 import translate from 'Utilities/String/translate';
@@ -152,17 +150,6 @@ class MovieDetails extends Component {
     this.setState({ titleWidth: width });
   };
 
-  onKeyUp = (event) => {
-    if (event.composedPath && event.composedPath().length === 4) {
-      if (event.keyCode === keyCodes.LEFT_ARROW) {
-        this.props.onGoToMovie(this.props.previousMovie.titleSlug);
-      }
-      if (event.keyCode === keyCodes.RIGHT_ARROW) {
-        this.props.onGoToMovie(this.props.nextMovie.titleSlug);
-      }
-    }
-  };
-
   onTouchStart = (event) => {
     const touches = event.touches;
     const touchStart = touches[0].pageX;
@@ -193,33 +180,6 @@ class MovieDetails extends Component {
     this._touchStart = touchStart;
   };
 
-  onTouchEnd = (event) => {
-    const touches = event.changedTouches;
-    const currentTouch = touches[0].pageX;
-
-    if (!this._touchStart) {
-      return;
-    }
-
-    if (currentTouch > this._touchStart && currentTouch - this._touchStart > 100) {
-      this.props.onGoToMovie(this.props.previousMovie.titleSlug);
-    } else if (currentTouch < this._touchStart && this._touchStart - currentTouch > 100) {
-      this.props.onGoToMovie(this.props.nextMovie.titleSlug);
-    }
-
-    this._touchStart = null;
-  };
-
-  onTouchCancel = (event) => {
-    this._touchStart = null;
-  };
-
-  onTouchMove = (event) => {
-    if (!this._touchStart) {
-      return;
-    }
-  };
-
   //
   // Render
 
@@ -229,6 +189,7 @@ class MovieDetails extends Component {
       tmdbId,
       stashId,
       title,
+      code,
       year,
       releaseDate,
       runtime,
@@ -254,8 +215,6 @@ class MovieDetails extends Component {
       movieFilesError,
       extraFilesError,
       hasMovieFiles,
-      previousMovie,
-      nextMovie,
       onMonitorTogglePress,
       onRefreshPress,
       onSearchPress,
@@ -388,24 +347,6 @@ class MovieDetails extends Component {
                       <div className={styles.title} style={{ width: marqueeWidth }}>
                         <Marquee text={title} />
                       </div>
-                    </div>
-
-                    <div className={styles.movieNavigationButtons}>
-                      <IconButton
-                        className={styles.movieNavigationButton}
-                        name={icons.ARROW_LEFT}
-                        size={30}
-                        title={translate('GoToInterp', [previousMovie.title])}
-                        to={`/movie/${previousMovie.titleSlug}`}
-                      />
-
-                      <IconButton
-                        className={styles.movieNavigationButton}
-                        name={icons.ARROW_RIGHT}
-                        size={30}
-                        title={translate('GoToInterp', [nextMovie.title])}
-                        to={`/movie/${nextMovie.titleSlug}`}
-                      />
                     </div>
                   </div>
                 </Measure>
@@ -558,6 +499,18 @@ class MovieDetails extends Component {
                     </span>
                   </InfoLabel>
 
+                  {!!code && !!code.length &&
+                    <InfoLabel
+                      className={styles.detailsInfoLabel}
+                      title={translate('Code')}
+                      size={sizes.LARGE}
+                    >
+                      <span className={styles.code}>
+                        {code}
+                      </span>
+                    </InfoLabel>
+                  }
+
                   {!!genres.length && !isSmallScreen &&
                     <InfoLabel
                       className={styles.detailsInfoLabel}
@@ -641,7 +594,6 @@ class MovieDetails extends Component {
             isOpen={isDeleteMovieModalOpen}
             movieId={id}
             onModalClose={this.onDeleteMovieModalClose}
-            nextMovieRelativePath={`/movie/${nextMovie.titleSlug}`}
           />
 
           <InteractiveImportModal
@@ -671,6 +623,7 @@ MovieDetails.propTypes = {
   tmdbId: PropTypes.number.isRequired,
   stashId: PropTypes.string,
   title: PropTypes.string.isRequired,
+  code: PropTypes.string,
   year: PropTypes.number.isRequired,
   runtime: PropTypes.number.isRequired,
   certification: PropTypes.string,
@@ -701,8 +654,6 @@ MovieDetails.propTypes = {
   movieFilesError: PropTypes.object,
   extraFilesError: PropTypes.object,
   hasMovieFiles: PropTypes.bool.isRequired,
-  previousMovie: PropTypes.object.isRequired,
-  nextMovie: PropTypes.object.isRequired,
   onMonitorTogglePress: PropTypes.func.isRequired,
   onRefreshPress: PropTypes.func.isRequired,
   onSearchPress: PropTypes.func.isRequired,

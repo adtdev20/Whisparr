@@ -5,6 +5,7 @@ using FluentAssertions;
 using Moq;
 using NUnit.Framework;
 using NzbDrone.Core.Movies;
+using NzbDrone.Core.Movies.Credits;
 using NzbDrone.Core.Movies.Performers;
 using NzbDrone.Core.Movies.Studios;
 using NzbDrone.Core.Test.Framework;
@@ -26,9 +27,11 @@ namespace NzbDrone.Core.Test.MovieTests.MovieServiceTests
             var invalidCredits = new List<Credit> { new Credit { Character = "Invalid", Performer = new CreditPerformer { Name = "Invalid Name", Gender = Gender.Female } } };
             var bellaCredits = new List<Credit> { new Credit { Character = "", Performer = new CreditPerformer { Name = "Violet Myers", Gender = Gender.Female } }, new Credit { Character = "", Performer = new CreditPerformer { Name = "Victor Ray", Gender = Gender.Male } } };
             var evilCredits = new List<Credit> { new Credit { Character = "", Performer = new CreditPerformer { Name = "Whitney Wright", Gender = Gender.Female } }, new Credit { Character = "", Performer = new CreditPerformer { Name = "Mick Blue", Gender = Gender.Male } } };
+            var ariAlectra = new List<Credit> { new Credit { Character = "", Performer = new CreditPerformer { Name = "Ari Alectra", Gender = Gender.Female } } };
 
             var studio = new Core.MetadataSource.SkyHook.Resource.StudioResource { Title = "Studio" };
             var evilStudio = new Core.MetadataSource.SkyHook.Resource.StudioResource { Title = "EvilAngel" };
+            var jesseLoadsMonsterFacials = new Core.MetadataSource.SkyHook.Resource.StudioResource { Title = "JesseLoadsMonsterFacials" };
 
             var scenes = Builder<Movie>.CreateListOfSize(2000)
                                         .TheFirst(1)
@@ -127,6 +130,31 @@ namespace NzbDrone.Core.Test.MovieTests.MovieServiceTests
                                         .With(x => x.MovieMetadata.Value.ReleaseDate = "2021-02-24")
                                         .With(x => x.MovieMetadata.Value.Studio = evilStudio)
                                         .With(x => x.MovieMetadata.Value.Credits = evilCredits)
+                                        .TheNext(1)
+                                        .With(x => x.Title = "SGKI-011")
+                                        .With(x => x.MovieMetadata.Value.CleanTitle = "sgki011")
+                                        .With(x => x.MovieMetadata.Value.Studio = studio)
+                                        .With(x => x.MovieMetadata.Value.ReleaseDate = "2025-01-01")
+                                        .TheNext(1)
+                                        .With(x => x.Title = "JUNY-018")
+                                        .With(x => x.MovieMetadata.Value.CleanTitle = "juny018")
+                                        .With(x => x.MovieMetadata.Value.Studio = studio)
+                                        .With(x => x.MovieMetadata.Value.ReleaseDate = "2025-01-01")
+                                        .TheNext(1)
+                                        .With(x => x.Title = "NHDTB-508")
+                                        .With(x => x.MovieMetadata.Value.CleanTitle = "nhdtb508")
+                                        .With(x => x.MovieMetadata.Value.Studio = studio)
+                                        .With(x => x.MovieMetadata.Value.ReleaseDate = "2025-01-01")
+                                        .TheNext(1)
+                                        .With(x => x.Title = "Ari Alectra BTS")
+                                        .With(x => x.MovieMetadata.Value.Studio = jesseLoadsMonsterFacials)
+                                        .With(x => x.MovieMetadata.Value.ReleaseDate = "2022-04-22")
+                                        .With(x => x.MovieMetadata.Value.Credits = ariAlectra)
+                                        .TheNext(1)
+                                        .With(x => x.Title = "Ari Alectra")
+                                        .With(x => x.MovieMetadata.Value.Studio = jesseLoadsMonsterFacials)
+                                        .With(x => x.MovieMetadata.Value.ReleaseDate = "2022-04-22")
+                                        .With(x => x.MovieMetadata.Value.Credits = ariAlectra)
                                         .TheRest()
                                         .With(x => x.Title = "Title For the Rest")
                                         .With(x => x.MovieMetadata.Value.ReleaseDate = "2024-06-12")
@@ -140,12 +168,17 @@ namespace NzbDrone.Core.Test.MovieTests.MovieServiceTests
                 new Studio { ForeignId = "Studio" },
                 new Studio { ForeignId = "EvilAngel" },
                 new Studio { ForeignId = "Bellesa House" },
-                new Studio { ForeignId = "Step Siblings Caught" }
+                new Studio { ForeignId = "Step Siblings Caught" },
+                new Studio { ForeignId = "JesseLoadsMonsterFacials" }
             };
 
             Mocker.GetMock<IStudioService>()
                 .Setup(s => s.FindAllByTitle(It.IsAny<string>()))
                 .Returns(studios);
+
+            Mocker.GetMock<IMovieRepository>()
+                .Setup(s => s.FindByTitles(It.IsAny<List<string>>()))
+                .Returns(scenes);
 
             Mocker.GetMock<IMovieRepository>()
                 .Setup(s => s.GetByStudioForeignId(It.Is<string>(s => s.Equals("Studio"))))
@@ -154,6 +187,10 @@ namespace NzbDrone.Core.Test.MovieTests.MovieServiceTests
             Mocker.GetMock<IMovieRepository>()
                 .Setup(s => s.GetByStudioForeignId(It.Is<string>(s => s.Equals("EvilAngel"))))
                 .Returns(scenes.Where(s => s.MovieMetadata.Value.Studio.Title.Equals("EvilAngel")).ToList());
+
+            Mocker.GetMock<IMovieRepository>()
+                .Setup(s => s.GetByStudioForeignId(It.Is<string>(s => s.Equals("JesseLoadsMonsterFacials"))))
+                .Returns(scenes.Where(s => s.MovieMetadata.Value.Studio.Title.Equals("JesseLoadsMonsterFacials")).ToList());
 
             Mocker.GetMock<IMovieRepository>()
                 .Setup(s => s.FindByStudioAndDate(It.Is<string>(s => s.Equals("Studio")), It.Is<string>(d => d.Equals("2021-01-08"))))
@@ -195,6 +232,10 @@ namespace NzbDrone.Core.Test.MovieTests.MovieServiceTests
                 .Setup(s => s.FindByStudioAndDate(It.Is<string>(s => s.Equals("EvilAngel")), It.Is<string>(d => d.Equals("2021-02-24"))))
                 .Returns(scenes.Where(s => s.MovieMetadata.Value.ReleaseDate.Equals("2021-02-24")).Append(scenes.First()).ToList());
 
+            Mocker.GetMock<IMovieRepository>()
+                .Setup(s => s.FindByStudioAndDate(It.Is<string>(s => s.Equals("JesseLoadsMonsterFacials")), It.Is<string>(d => d.Equals("2022-04-22"))))
+                .Returns(scenes.Where(s => s.MovieMetadata.Value.ReleaseDate.Equals("2022-04-22")).Append(scenes.First()).ToList());
+
             _candidates = Builder<Movie>.CreateListOfSize(3)
                                         .TheFirst(1)
                                         .With(x => x.MovieMetadata.Value.CleanTitle = "batman")
@@ -218,6 +259,9 @@ namespace NzbDrone.Core.Test.MovieTests.MovieServiceTests
             movie.Year.Should().Be(2000);
         }
 
+        [TestCase("SGKI-011", 20)]
+        [TestCase("JUNY-018", 21)]
+        [TestCase("NHDTB-508", 22)]
         [TestCase("Studio 2020-05-29 Title Vol 1 E2", 2)]
         [TestCase("Studio 2020-05-29 Title Vol 1 E2_1", 2)]
         [TestCase("[Studio] Quinn Waters (Title / 08.01.2021) [2021 г., Big Tits, Blowjob, Brunette, Chubby, Curvy, Cowgirl, Reverse Cowgirl, Cumshots, Facials, Long Hair, Doggy Style, Hardcore, Missionary, PAWG, POV, Trimmed Pussy, Tattoo, Czech, VR, 8K, 3840p] [Oculus Rift / Vive]", 7)]
@@ -235,10 +279,12 @@ namespace NzbDrone.Core.Test.MovieTests.MovieServiceTests
         [TestCase("Bellesa House 2024-08-15 Episode 200 Violet And Victor", 16)]
         [TestCase("Bellesa House 2024-08-15 Episode 200 Violet & Victor", 16)]
         [TestCase("Step Siblings Caught 2024-02-07 Cash For Kisses On Valentines Day - S25E7", 17)]
-        [TestCase("EvilAngel - 2021-02-24 - BTS Whitney Wright POV Anal & A2M", 18)]
-        [TestCase("EvilAngel - 2021-02-24 - Whitney Wright POV Anal & A2M", 19)]
-        [TestCase("EvilAngel.E1224.Whitney Wright POV Anal & A2M", 19)] // Episode (Search all for the studio)
+        [TestCase("EvilAngel - 2021-02-24 - BTS Whitney Wright POV Anal & A2M", 19)]
+        [TestCase("EvilAngel - 2021-02-24 - Whitney Wright POV Anal & A2M", 18)]
+        [TestCase("EvilAngel.E1224.Whitney Wright POV Anal & A2M", 18)] // Episode (Search all for the studio)
         [TestCase("EvilAngel - 2021-02-24 - Whitney Wright", null)]  // Possible Duplicate so no match
+        [TestCase("JesseLoadsMonsterFacials.22.04.22.Ari.Alectra.XXX.1080p", 24)]
+        [TestCase("JesseLoadsMonsterFacials.22.04.22.Ari.Alectra BTS.XXX.1080p", 23)]
         public void should_find_by_studio_and_release_date(string title, int? id)
         {
             var parsedMovieInfo = Parser.Parser.ParseMovieTitle(title);

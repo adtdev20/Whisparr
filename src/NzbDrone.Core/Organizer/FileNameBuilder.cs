@@ -22,10 +22,11 @@ namespace NzbDrone.Core.Organizer
 {
     public interface IBuildFileNames
     {
-        string BuildFileName(Movie movie, MovieFile movieFile, NamingConfig namingConfig = null, List<CustomFormat> customFormats = null);
+        string BuildFileName(Movie movie, MovieFile movieFile, NamingConfig namingConfig = null, List<CustomFormat> customFormats = null, bool sample = false);
         string BuildFilePath(Movie movie, string fileName, string extension);
         string BuildFilePath(string path, string fileName, string extension);
         string GetMovieFolder(Movie movie, NamingConfig namingConfig = null);
+        string CleanTitle(string title);
     }
 
     public class FileNameBuilder : IBuildFileNames
@@ -46,14 +47,23 @@ namespace NzbDrone.Core.Organizer
         public static readonly Regex MovieTitleRegex = new Regex(@"(?<token>\{((?:(Movie|Original))(?<separator>[- ._])(Clean)?(Original)?(Title|Filename)(The)?)(?::(?<customFormat>[a-z0-9|]+))?\})",
                                                                             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        public static readonly Regex SceneFolderRegex = new Regex(@"(?<token>\{((?:(Studio|Original))(?<separator>[- ._])(Clean)?(Original)?(Title|Filename)(The)?)(?::(?<customFormat>[a-z0-9|]+))?\})",
+                                                                            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        public static readonly Regex MainFolderRegex = new Regex(@"^(?<main>(?:[a-zA-Z0-9]+(?:\\|\/)))",
+                                                                            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
         public static readonly Regex SceneTitleRegex = new Regex(@"(?<token>\{((?:(Scene|Original))(?<separator>[- ._])(Clean)?(Original)?(Title|Filename)(The)?)(?::(?<customFormat>[a-z0-9|]+))?\})",
                                                                             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex FileNameCleanupRegex = new Regex(@"([- ._])(\1)+", RegexOptions.Compiled);
         private static readonly Regex TrimSeparatorsRegex = new Regex(@"[- ._]$", RegexOptions.Compiled);
 
-        private static readonly Regex ScenifyRemoveChars = new Regex(@"(?<=\s)(,|<|>|\/|\\|;|:|'|""|\||`|~|!|\?|@|$|%|^|\*|-|_|=){1}(?=\s)|('|:|\?|,)(?=(?:(?:s|m)\s)|\s|$)|(\(|\)|\[|\]|\{|\})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex ScenifyRemoveChars = new Regex(@"(?<=\s)(,|<|>|\/|\\|;|:|'|""|\||`|’|~|!|\?|@|$|%|^|\*|-|_|=){1}(?=\s)|('|`|’|:|\?|,)(?=(?:(?:s|m|t|re)\s)|\s|$)|(\(|\)|\[|\]|\{|\})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex ScenifyReplaceChars = new Regex(@"[\/]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex EmojiRegex = new Regex(@"\p{Cs}", RegexOptions.Compiled);
+        private static readonly Regex WordDelimiterRegex = new Regex(@"(’|')+", RegexOptions.Compiled);
 
         private static readonly Regex TitlePrefixRegex = new Regex(@"^(The|An|A) (.*?)((?: *\([^)]+\))*)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -99,7 +109,7 @@ namespace NzbDrone.Core.Organizer
             _logger = logger;
         }
 
-        public string BuildFileName(Movie movie, MovieFile movieFile, NamingConfig namingConfig = null, List<CustomFormat> customFormats = null)
+        public string BuildFileName(Movie movie, MovieFile movieFile, NamingConfig namingConfig = null, List<CustomFormat> customFormats = null, bool sample = false)
         {
             if (namingConfig == null)
             {
@@ -110,7 +120,10 @@ namespace NzbDrone.Core.Organizer
 
             if ((itemType == ItemType.Movie && !namingConfig.RenameMovies) || (itemType == ItemType.Scene && !namingConfig.RenameScenes))
             {
-                return GetOriginalTitle(movieFile, false);
+                if (!sample)
+                {
+                    return GetOriginalTitle(movieFile, false);
+                }
             }
 
             var pattern = itemType == ItemType.Movie ? namingConfig.StandardMovieFormat : namingConfig.StandardSceneFormat;
@@ -237,13 +250,19 @@ namespace NzbDrone.Core.Organizer
             return Path.Combine(components.ToArray());
         }
 
-        public static string CleanTitle(string title)
+        public string CleanTitle(string title)
         {
+            if (title.IsNullOrWhiteSpace())
+            {
+                return string.Empty;
+            }
+
             title = title.Replace("&", "and");
             title = ScenifyReplaceChars.Replace(title, " ");
+            title = EmojiRegex.Replace(title, " ");
             title = ScenifyRemoveChars.Replace(title, string.Empty);
 
-            return title;
+            return title.Trim();
         }
 
         public static string TitleThe(string title)
@@ -315,6 +334,7 @@ namespace NzbDrone.Core.Organizer
                 tokenHandlers["{Studio Title}"] = m => movie.MovieMetadata.Value.StudioTitle;
                 tokenHandlers["{Studio TitleSlug}"] = m => SlugTitle(movie.MovieMetadata.Value.StudioTitle);
                 tokenHandlers["{Studio CleanTitle}"] = m => CleanTitle(movie.MovieMetadata.Value.StudioTitle);
+                tokenHandlers["{Studio CleanTitleSlug}"] = m => SlugTitle(CleanTitle(movie.MovieMetadata.Value.StudioTitle));
                 tokenHandlers["{Studio TitleThe}"] = m => TitleThe(movie.MovieMetadata.Value.StudioTitle);
                 tokenHandlers["{Studio TitleFirstCharacter}"] = m => TitleThe(movie.MovieMetadata.Value.StudioTitle).Substring(0, 1).FirstCharToUpper();
             }
@@ -351,10 +371,43 @@ namespace NzbDrone.Core.Organizer
             {
                 var credits = movie.MovieMetadata.Value.Credits;
                 tokenHandlers["{Scene Performers}"] = m => credits.OrderBy(p => p.Performer.Name)
-                                                                  .Select(p => p.Performer.Name).Join(" ");
+                    .Select(p => p.Performer.Name)
+                    .Take(4)
+                    .Join(" ");
                 tokenHandlers["{Scene PerformersFemale}"] = m => credits.Where(p => p.Performer.Gender == Gender.Female)
-                                                                        .OrderBy(p => p.Performer.Name)
-                                                                        .Select(p => p.Performer.Name).Join(" ");
+                    .OrderBy(p => p.Performer.Name)
+                    .Select(p => p.Performer.Name)
+                    .Take(4)
+                    .Join(" ");
+                tokenHandlers["{Scene PerformersMale}"] = m => credits.Where(p => p.Performer.Gender == Gender.Male)
+                    .OrderBy(p => p.Performer.Name)
+                    .Select(p => p.Performer.Name)
+                    .Take(4)
+                    .Join(" ");
+                tokenHandlers["{Scene PerformersFemaleAlias}"] = m => credits.Where(p => p.Performer.Gender == Gender.Female)
+                    .OrderBy(p => p.Performer.Name)
+                    .Select(p => !string.IsNullOrWhiteSpace(p.Character) ? p.Character : p.Performer.Name)
+                    .Take(4)
+                    .Join(" ");
+                tokenHandlers["{Scene PerformersMaleAlias}"] = m => credits.Where(p => p.Performer.Gender == Gender.Male)
+                    .OrderBy(p => p.Performer.Name)
+                    .Select(p => !string.IsNullOrWhiteSpace(p.Character) ? p.Character : p.Performer.Name)
+                    .Take(4)
+                    .Join(" ");
+                tokenHandlers["{Scene PerformersAlias}"] = m => credits.OrderBy(p => p.Performer.Name)
+                    .Select(p => !string.IsNullOrWhiteSpace(p.Character) ? p.Character : p.Performer.Name)
+                    .Take(4)
+                    .Join(" ");
+            }
+
+            if (!string.IsNullOrWhiteSpace(movie.MovieMetadata.Value.Code))
+            {
+                var code = movie.MovieMetadata.Value.Code;
+                tokenHandlers["{Scene Code}"] = m => code;
+            }
+            else
+            {
+                tokenHandlers["{Scene Code}"] = m => string.Empty;
             }
         }
 

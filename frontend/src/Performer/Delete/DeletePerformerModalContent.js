@@ -3,13 +3,15 @@ import React, { Component } from 'react';
 import FormGroup from 'Components/Form/FormGroup';
 import FormInputGroup from 'Components/Form/FormInputGroup';
 import FormLabel from 'Components/Form/FormLabel';
+import InfoLabel from 'Components/InfoLabel';
 import Button from 'Components/Link/Button';
 import ModalBody from 'Components/Modal/ModalBody';
 import ModalContent from 'Components/Modal/ModalContent';
 import ModalFooter from 'Components/Modal/ModalFooter';
 import ModalHeader from 'Components/Modal/ModalHeader';
-import { inputTypes, kinds } from 'Helpers/Props';
+import { inputTypes, kinds, sizes } from 'Helpers/Props';
 import translate from 'Utilities/String/translate';
+import styles from './DeletePerformerModal.css';
 
 class DeletePerformerModalContent extends Component {
 
@@ -63,6 +65,11 @@ class DeletePerformerModalContent extends Component {
         </ModalHeader>
 
         <ModalBody>
+          <FormGroup>
+            <InfoLabel size={sizes.LARGE} className={styles.warningText}>
+              {translate('DeletePerformerModalWarning', [fullName])}
+            </InfoLabel>
+          </FormGroup>
           <FormGroup>
             <FormLabel>
               {translate('AddListExclusion')}

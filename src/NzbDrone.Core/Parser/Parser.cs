@@ -27,6 +27,16 @@ namespace NzbDrone.Core.Parser
 
         private static readonly Regex[] ReportTitleRegex = new[]
         {
+            // Site - Performers - Title (Month DD, YYYY) [Quality]
+            // Pure Taboo - Sarah Arabic, Lily LaBeau - A Costly Divorce (June 24, 2025) [1080p HEVC x265]
+            new Regex(@"^(?<studiotitle>[^-]+?)(?<releasetoken>\s*-\s*.+?)\s*\(\s*(?<airmonthname>January|February|March|April|May|June|July|August|September|October|November|December)\s+(?<airday>[0-3]?\d),?\s+(?<airyear>(19|20)\d{2})\s*\)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // (?P<site>.+?)?[\s\.\-](?P<date>\d{2}[\s\.\-]\d{2}[\s\.\-]\d{2})[\s\.\-](?P<performer>\w+.+?)?[\s\.\-](?P<title>.*?(?=(?:[\s\.\-]mp4)|$))
+            // SCENE with airdate (18.04.28, 2018.04.28, 18-04-28, 18 04 28, 18_04_28) and performer
+            new Regex(@"^(?<studiotitle>.+?)?[-_. ]+(?<airyear>\d{2}|\d{4})[-_. ]+(?<airmonth>[0-1][0-9])[-_. ]+(?<airday>[0-3][0-9])[-_. ]+(?<performer>\w+.+?)?[-_. ](?<title>.*?(?=(?:[-_. ]mp4)|$))",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
             // SCENE - Site title in brackets with full year in date then episode info
             // [Site] 19-07-2023 - Loli - Beautiful Episode 2160p {RlsGroup}
             new Regex("^\\[(?<studiotitle>.+?)\\][-_. ]+(?<airday>[0-3][0-9])(?![-_. ]+[0-3][0-9])?[-_. ]+(?<airmonth>[0-1][0-9])[-_. ]+(?<airyear>(19|20)\\d{2})",
@@ -39,7 +49,7 @@ namespace NzbDrone.Core.Parser
 
             // SCENE with non-separated airdate after title (20180428)
             new Regex(@"^(?<studiotitle>.+?)?[-_. ]+(?<airyear>(19|20)\d{2})(?<airmonth>[0-1][0-9])(?<airday>[0-3][0-9])",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled),
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
 
             // SCENE with airdate after title [studio] title (dd.mm.yyyy)
             new Regex(@"\[(?<studiotitle>.+?)\]+[-_. ]+(?<releasetoken>.+?)(?<airday>[0-3][0-9])\.(?<airmonth>[0-1][0-9])\.(?<airyear>(19|20)\d{2})\)",
@@ -104,6 +114,12 @@ namespace NzbDrone.Core.Parser
 
             // StashId
             new Regex(@"(?<stashid>.{8}-.{4}-.{4}-.{4}-.{12})", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // JAV
+            new Regex(@"^(?<code>[A-Z]{2,5}[- ][0-9]{3,5})", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // JAV-FC2
+            new Regex(@"(?<code>FC2.*(?:PPV).*[0-9]{4,7})", RegexOptions.IgnoreCase | RegexOptions.Compiled),
         };
 
         private static readonly Regex[] ReportTitleFolderRegex = new[]
@@ -772,7 +788,7 @@ namespace NzbDrone.Core.Parser
 
         private static ParsedMovieInfo ParseMatchCollection(MatchCollection matchCollection, string releaseTitle)
         {
-            if (!matchCollection[0].Groups["airyear"].Success && !matchCollection[0].Groups["episode"].Success && !matchCollection[0].Groups["stashid"].Success)
+            if (!matchCollection[0].Groups["airyear"].Success && !matchCollection[0].Groups["code"].Success  && !matchCollection[0].Groups["episode"].Success && !matchCollection[0].Groups["stashid"].Success)
             {
                 if (!matchCollection[0].Groups["title"].Success || matchCollection[0].Groups["title"].Value == "(")
                 {
@@ -877,7 +893,18 @@ namespace NzbDrone.Core.Parser
                     }
 
                     // Try to Parse as a daily show
-                    var airmonth = Convert.ToInt32(matchCollection[0].Groups["airmonth"].Value);
+                    int airmonth;
+                    if (matchCollection[0].Groups["airmonthname"].Success)
+                    {
+                        // Convert month name to number
+                        var monthName = matchCollection[0].Groups["airmonthname"].Value;
+                        airmonth = DateTime.ParseExact(monthName, "MMMM", CultureInfo.InvariantCulture).Month;
+                    }
+                    else
+                    {
+                        airmonth = Convert.ToInt32(matchCollection[0].Groups["airmonth"].Value);
+                    }
+
                     var airday = Convert.ToInt32(matchCollection[0].Groups["airday"].Value);
 
                     // Swap day and month if month is bigger than 12 (scene fail)
@@ -963,6 +990,13 @@ namespace NzbDrone.Core.Parser
                     result.StashId = m.Groups["stashid"].Value;
                 }
 
+                if (matchCollection[0].Groups["code"].Success)
+                {
+                    result.Code = matchCollection[0].Groups["code"].Value;
+                }
+
+                var firstPerformer = matchCollection[0].Groups["performer"].Value.Replace('.', ' ');
+                result.FirstPerformer = firstPerformer;
                 result.StudioTitle = studioTitle;
 
                 Logger.Debug("Scene Parsed. {0}", result);

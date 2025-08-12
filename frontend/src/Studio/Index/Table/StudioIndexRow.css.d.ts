@@ -2,6 +2,7 @@
 // Please do not change this file!
 interface CssExports {
   'actions': string;
+  'aliases': string;
   'cell': string;
   'checkInput': string;
   'externalLinks': string;
@@ -11,6 +12,7 @@ interface CssExports {
   'sortTitle': string;
   'status': string;
   'tags': string;
+  'totalSceneCount': string;
 }
 export const cssExports: CssExports;
 export default cssExports;

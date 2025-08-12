@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
+using DryIoc.ImTools;
 using NLog;
 using NzbDrone.Common.Disk;
 using NzbDrone.Common.Extensions;
@@ -16,6 +18,7 @@ namespace NzbDrone.Core.MediaFiles
 {
     public interface IDeleteMediaFiles
     {
+        void DeleteMovieFile(MovieFile movieFile);
         void DeleteMovieFile(Movie movie, MovieFile movieFile);
     }
 
@@ -88,28 +91,63 @@ namespace NzbDrone.Core.MediaFiles
             _eventAggregator.PublishEvent(new DeleteCompletedEvent());
         }
 
+        public void DeleteMovieFile(MovieFile movieFile)
+        {
+            var fullPath = movieFile.OriginalFilePath;
+            var rootFolder = _diskProvider.GetParentFolder(fullPath);
+
+            if (!_diskProvider.FolderExists(rootFolder))
+            {
+                _logger.Warn("Movie's root folder ({0}) doesn't exist.", rootFolder);
+                throw new NzbDroneClientException(HttpStatusCode.Conflict, "Movie's root folder ({0}) doesn't exist.", rootFolder);
+            }
+
+            if (_diskProvider.FileExists(fullPath))
+            {
+                _logger.Info("Deleting movie file: {0}", fullPath);
+
+                var subfolder = rootFolder;
+
+                try
+                {
+                    _recycleBinProvider.DeleteFile(fullPath, subfolder);
+                }
+                catch (Exception e)
+                {
+                    _logger.Error(e, "Unable to delete movie file");
+                    throw new NzbDroneClientException(HttpStatusCode.InternalServerError, "Unable to delete movie file");
+                }
+            }
+
+            // Delete the movie file from the database to clean it up even if the file was already deleted
+            _mediaFileService.Delete(movieFile, DeleteMediaFileReason.Manual);
+
+            _eventAggregator.PublishEvent(new DeleteCompletedEvent());
+        }
+
         public void HandleAsync(MoviesDeletedEvent message)
         {
             if (message.DeleteFiles)
             {
-                var allMovies = _movieService.AllMoviePaths();
+                var movieIds = message.Movies.Map(m => m.Id).ToList();
+                var allMovies = _movieService.FindByIds(movieIds);
 
                 foreach (var movie in message.Movies)
                 {
                     foreach (var s in allMovies)
                     {
-                        if (s.Key == movie.Id)
+                        if (s.Id == movie.Id)
                         {
                             continue;
                         }
 
-                        if (movie.Path.IsParentPath(s.Value))
+                        if (movie.Path.IsParentPath(s.Path))
                         {
                             _logger.Error("Movie path: '{0}' is a parent of another movie, not deleting files.", movie.Path);
                             return;
                         }
 
-                        if (movie.Path.PathEquals(s.Value))
+                        if (movie.Path.PathEquals(s.Path))
                         {
                             _logger.Error("Movie path: '{0}' is the same as another movie, not deleting files.", movie.Path);
                             return;
@@ -131,18 +169,26 @@ namespace NzbDrone.Core.MediaFiles
         {
             if (_configService.DeleteEmptyFolders)
             {
-                var movie = message.MovieFile.Movie;
-                var moviePath = movie.Path;
-                var folder = message.MovieFile.Path.GetParentPath();
-
-                while (moviePath.IsParentPath(folder))
+                string moviePath = null;
+                if (message.MovieFile.Movie != null)
                 {
-                    if (_diskProvider.FolderExists(folder))
-                    {
-                        _diskProvider.RemoveEmptySubfolders(folder);
-                    }
+                    var movie = message.MovieFile.Movie;
+                    moviePath = movie.Path;
+                    var folder = message.MovieFile.Path.GetParentPath();
 
-                    folder = folder.GetParentPath();
+                    while (moviePath.IsParentPath(folder))
+                    {
+                        if (_diskProvider.FolderExists(folder))
+                        {
+                            _diskProvider.RemoveEmptySubfolders(folder);
+                        }
+
+                        folder = folder.GetParentPath();
+                    }
+                }
+                else
+                {
+                    moviePath = message.MovieFile.OriginalFilePath.GetParentPath();
                 }
 
                 _diskProvider.RemoveEmptySubfolders(moviePath);

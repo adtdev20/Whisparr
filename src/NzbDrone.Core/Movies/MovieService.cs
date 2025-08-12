@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NLog;
+using NzbDrone.Common.Cache;
 using NzbDrone.Common.Extensions;
 using NzbDrone.Core.Configuration;
 using NzbDrone.Core.Datastore;
@@ -43,6 +44,7 @@ namespace NzbDrone.Core.Movies
         List<string> AllMovieForeignIds();
         bool MovieExists(Movie movie);
         List<Movie> GetMoviesByFileId(int fileId);
+        List<Movie> GetMoviesByFileId(IEnumerable<int> fileId);
         List<Movie> GetMoviesBetweenDates(DateTime start, DateTime end, bool includeUnmonitored);
         PagingSpec<Movie> MoviesWithoutFiles(PagingSpec<Movie> pagingSpec);
         void DeleteMovie(int movieId, bool deleteFiles, bool addExclusion = false);
@@ -55,6 +57,8 @@ namespace NzbDrone.Core.Movies
         bool MoviePathExists(string folder);
         void RemoveAddOptions(Movie movie);
         bool ExistsByMetadataId(int metadataId);
+        void SetFileIds(List<Movie> movies);
+        Dictionary<Movie, MovieParseMatchType> MatchMovies(string parsedMovieTitle, string releaseDate, List<Movie> movies);
     }
 
     public class MovieService : IMovieService, IHandle<MovieFileAddedEvent>,
@@ -65,6 +69,8 @@ namespace NzbDrone.Core.Movies
         private readonly IConfigService _configService;
         private readonly IEventAggregator _eventAggregator;
         private readonly IBuildMoviePaths _moviePathBuilder;
+        private readonly ICacheManager _cacheManager;
+        private readonly string _cacheName;
         private readonly Logger _logger;
 
         public MovieService(IMovieRepository movieRepository,
@@ -72,6 +78,7 @@ namespace NzbDrone.Core.Movies
                             IEventAggregator eventAggregator,
                             IConfigService configService,
                             IBuildMoviePaths moviePathBuilder,
+                            ICacheManager cacheManager,
                             Logger logger)
         {
             _movieRepository = movieRepository;
@@ -79,6 +86,11 @@ namespace NzbDrone.Core.Movies
             _eventAggregator = eventAggregator;
             _configService = configService;
             _moviePathBuilder = moviePathBuilder;
+            _cacheManager = cacheManager;
+
+            var t = Type.GetType("Whisparr.Api.V3.Movies.MovieResource");
+            _cacheName = $"{t?.FullName}_movieResources";
+
             _logger = logger;
         }
 
@@ -100,8 +112,10 @@ namespace NzbDrone.Core.Movies
         public Movie AddMovie(Movie newMovie)
         {
             var movie = _movieRepository.Insert(newMovie);
-
-            _eventAggregator.PublishEvent(new MovieAddedEvent(GetMovie(movie.Id)));
+            if (movie.Title != null)
+            {
+                _eventAggregator.PublishEvent(new MovieAddedEvent(GetMovie(movie.Id)));
+            }
 
             return movie;
         }
@@ -237,6 +251,8 @@ namespace NzbDrone.Core.Movies
             _movieRepository.Delete(movieId);
             _eventAggregator.PublishEvent(new MoviesDeletedEvent(new List<Movie> { movie }, deleteFiles, addExclusion));
             _logger.Info("Deleted movie {0}", movie);
+
+            RemoveMovieResourcesCache($"{movieId}");
         }
 
         public void DeleteMovies(List<int> movieIds, bool deleteFiles, bool addExclusion = false)
@@ -249,6 +265,7 @@ namespace NzbDrone.Core.Movies
 
             foreach (var movie in moviesToDelete)
             {
+                RemoveMovieResourcesCache($"{movie.Id}");
                 _logger.Info("Deleted movie {0}", movie);
             }
         }
@@ -270,6 +287,8 @@ namespace NzbDrone.Core.Movies
             var updatedMovie = _movieRepository.Update(movie);
             _eventAggregator.PublishEvent(new MovieEditedEvent(updatedMovie, storedMovie));
 
+            RemoveMovieResourcesCache($"{movie.Id}");
+
             return updatedMovie;
         }
 
@@ -290,6 +309,8 @@ namespace NzbDrone.Core.Movies
                 {
                     _logger.Trace("Not changing path for: {0}", m.Title);
                 }
+
+                RemoveMovieResourcesCache($"{m.Id}");
             }
 
             _movieRepository.UpdateMany(movie);
@@ -314,6 +335,11 @@ namespace NzbDrone.Core.Movies
         }
 
         public List<Movie> GetMoviesByFileId(int fileId)
+        {
+            return _movieRepository.GetMoviesByFileId(fileId);
+        }
+
+        public List<Movie> GetMoviesByFileId(IEnumerable<int> fileId)
         {
             return _movieRepository.GetMoviesByFileId(fileId);
         }
@@ -390,6 +416,11 @@ namespace NzbDrone.Core.Movies
                 result = FindByForeignId(parsedMovieInfo.StashId);
             }
 
+            if (result == null && parsedMovieInfo.Code.IsNotNullOrWhiteSpace())
+            {
+                result = FindByTitle(parsedMovieInfo.Code);
+            }
+
             if (result == null)
             {
                 var studios = _studioService.FindAllByTitle(parsedMovieInfo.StudioTitle);
@@ -455,11 +486,8 @@ namespace NzbDrone.Core.Movies
                 return null;
             }
 
-            if (movies.Count == 1 && _configService.WhisparrAutoMatchOnDate)
-            {
-                return movies.First();
-            }
-
+            // Movies with more than one movieFile is in the list, so filter to only one
+            movies = movies.DistinctBy(movie => movie.Id).ToList();
             var parsedMovieTitle = Parser.Parser.NormalizeEpisodeTitle(releaseTokens);
 
             if (parsedMovieTitle.IsNotNullOrWhiteSpace())
@@ -478,7 +506,7 @@ namespace NzbDrone.Core.Movies
             return null;
         }
 
-        private Dictionary<Movie, MovieParseMatchType> MatchMovies(string parsedMovieTitle, string releaseDate, List<Movie> movies)
+        public Dictionary<Movie, MovieParseMatchType> MatchMovies(string parsedMovieTitle, string releaseDate, List<Movie> movies)
         {
             var matches = new Dictionary<Movie, MovieParseMatchType>();
 
@@ -604,9 +632,11 @@ namespace NzbDrone.Core.Movies
             // Find the best match
             if (matches.Count > 1)
             {
-                foreach (var movieMatchType in (MovieParseMatchType[])Enum.GetValues(typeof(MovieParseMatchType)))
+                var movieParseMatchTypes = (MovieParseMatchType[])Enum.GetValues(typeof(MovieParseMatchType));
+
+                foreach (var movieMatchType in movieParseMatchTypes)
                 {
-                    var filteredMatches = matches.Where(m => m.Value > movieMatchType).ToDictionary(x => x.Key, x => x.Value);
+                    var filteredMatches = matches.Where(m => (int)m.Value < (int)movieMatchType).ToDictionary(x => x.Key, x => x.Value);
                     if (releaseDate.IsNotNullOrWhiteSpace() && (int)movieMatchType < 2)
                     {
                         filteredMatches = new Dictionary<Movie, MovieParseMatchType>();
@@ -638,14 +668,22 @@ namespace NzbDrone.Core.Movies
             throw new MultipleMoviesFoundException(movies, "Expected one movie, but found {0}. Matching movies: {1}", movies.Count, string.Join(",", movies));
         }
 
+        public void SetFileIds(List<Movie> movies)
+        {
+            _movieRepository.SetFileId(movies);
+        }
+
         public void Handle(MovieFileAddedEvent message)
         {
-            var movie = message.MovieFile.Movie;
-            movie.MovieFileId = message.MovieFile.Id;
-            _movieRepository.Update(movie);
+            if (message.MovieFile.Movie != null)
+            {
+                var movie = message.MovieFile.Movie;
+                movie.MovieFileId = message.MovieFile.Id;
+                _movieRepository.Update(movie);
 
-            // _movieRepository.SetFileId(message.MovieFile.Id, message.MovieFile.Movie.Value.Id);
-            _logger.Info("Assigning file [{0}] to movie [{1}]", message.MovieFile.RelativePath, message.MovieFile.Movie);
+                // _movieRepository.SetFileId(message.MovieFile.Id, message.MovieFile.Movie.Value.Id);
+                _logger.Info("Assigning file [{0}] to movie [{1}]", message.MovieFile.RelativePath, message.MovieFile.Movie);
+            }
         }
 
         public void Handle(MovieFileDeletedEvent message)
@@ -661,6 +699,15 @@ namespace NzbDrone.Core.Movies
                 }
 
                 UpdateMovie(movie);
+            }
+        }
+
+        private void RemoveMovieResourcesCache(string cacheKey)
+        {
+            var movieResourcesCache = _cacheManager.FindCache(_cacheName);
+            if (movieResourcesCache != null)
+            {
+                movieResourcesCache.Remove(cacheKey);
             }
         }
     }

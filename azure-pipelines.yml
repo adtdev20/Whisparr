@@ -15,11 +15,11 @@ variables:
   buildName: '$(Build.SourceBranchName).$(whisparrVersion)'
   sentryOrg: 'servarr'
   sentryUrl: 'https://sentry.servarr.com'
-  dotnetVersion: '6.0.417'
+  dotnetVersion: '6.0.427'
   nodeVersion: '20.X'
   innoVersion: '6.2.2'
   windowsImage: 'windows-2022'
-  linuxImage: 'ubuntu-20.04'
+  linuxImage: 'ubuntu-22.04'
   macImage: 'macOS-13'
 
 trigger:
@@ -483,6 +483,7 @@ stages:
           testResultsFiles: '**/TestResult.xml'
           testRunTitle: '$(testName) Unit Tests'
           failTaskOnFailedTests: true
+          failTaskOnMissingResultsFile: ne(variables['testName'], 'freebsd-x64')
 
     - job: Unit_Docker
       displayName: Unit Docker
@@ -542,7 +543,8 @@ stages:
           testResultsFiles: '**/TestResult.xml'
           testRunTitle: '$(testName) Unit Tests'
           failTaskOnFailedTests: true
-          
+          failTaskOnMissingResultsFile: true
+
     - job: Unit_LinuxCore_Postgres14
       displayName: Unit Native LinuxCore with Postgres14 Database
       dependsOn: Prepare
@@ -598,6 +600,7 @@ stages:
           testResultsFiles: '**/TestResult.xml'
           testRunTitle: 'LinuxCore Postgres14 Unit Tests'
           failTaskOnFailedTests: true
+          failTaskOnMissingResultsFile: true
 
     - job: Unit_LinuxCore_Postgres15
       displayName: Unit Native LinuxCore with Postgres15 Database
@@ -654,6 +657,7 @@ stages:
           testResultsFiles: '**/TestResult.xml'
           testRunTitle: 'LinuxCore Postgres15 Unit Tests'
           failTaskOnFailedTests: true
+          failTaskOnMissingResultsFile: true
 
   - stage: Integration
     displayName: Integration
@@ -736,6 +740,7 @@ stages:
           testResultsFiles: '**/TestResult.xml'
           testRunTitle: '$(testName) Integration Tests'
           failTaskOnFailedTests: true
+          failTaskOnMissingResultsFile: true
         displayName: Publish Test Results
 
     - job: Integration_LinuxCore_Postgres14
@@ -798,6 +803,7 @@ stages:
             testResultsFiles: '**/TestResult.xml'
             testRunTitle: 'Integration LinuxCore Postgres14 Database Integration Tests'
             failTaskOnFailedTests: true
+            failTaskOnMissingResultsFile: true
           displayName: Publish Test Results
 
 
@@ -861,6 +867,7 @@ stages:
             testResultsFiles: '**/TestResult.xml'
             testRunTitle: 'Integration LinuxCore Postgres15 Database Integration Tests'
             failTaskOnFailedTests: true
+            failTaskOnMissingResultsFile: true
           displayName: Publish Test Results
 
     - job: Integration_FreeBSD
@@ -906,7 +913,8 @@ stages:
           testResultsFormat: 'NUnit'
           testResultsFiles: '**/TestResult.xml'
           testRunTitle: 'FreeBSD Integration Tests'
-          failTaskOnFailedTests: false
+          failTaskOnFailedTests: true
+          failTaskOnMissingResultsFile: false
         displayName: Publish Test Results
 
     - job: Integration_Docker
@@ -976,6 +984,7 @@ stages:
           testResultsFiles: '**/TestResult.xml'
           testRunTitle: '$(testName) Integration Tests'
           failTaskOnFailedTests: true
+          failTaskOnMissingResultsFile: true
         displayName: Publish Test Results
 
   - stage: Automation
@@ -1057,6 +1066,7 @@ stages:
           testResultsFiles: '**/TestResult.xml'
           testRunTitle: '$(osName) Automation Tests'
           failTaskOnFailedTests: $(failBuild)
+          failTaskOnMissingResultsFile: $(failBuild)
         displayName: Publish Test Results
 
   - stage: Analyze
@@ -1110,14 +1120,14 @@ stages:
         env:
           FORCE_COLOR: 0
           YARN_CACHE_FOLDER: $(yarnCacheFolder)
-      
+
     - job: Api_Docs
       displayName: API Docs
       dependsOn: Prepare
       condition: |
         and
         (
-          and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/develop')),
+          and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/eros')),
           and(succeeded(), eq(dependencies.Prepare.outputs['setVar.backendNotUpdated'], '0'))
         )
 
@@ -1138,14 +1148,14 @@ stages:
       - bash: |
           git config --global user.email "development@lidarr.audio"
           git config --global user.name "Servarr"
-          git checkout -b api-docs
+          git checkout -b eros-api-docs
           git add .
           git status
           if git status | grep modified
           then
             git commit -am 'Automated API Docs update'
-            git push -f --set-upstream origin api-docs
-            curl -X POST -H "Authorization: token ${GITHUBTOKEN}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/whisparr/whisparr/pulls -d '{"head":"api-docs","base":"develop","title":"Update API docs"}'
+            git push -f --set-upstream origin eros-api-docs
+            curl -X POST -H "Authorization: token ${GITHUBTOKEN}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/whisparr/whisparr/pulls -d '{"head":"eros-api-docs","base":"eros","title":"Update API docs"}'
           else
             echo "No changes since last run"
           fi

@@ -11,6 +11,7 @@ import Menu from 'Components/Menu/Menu';
 import MenuButton from 'Components/Menu/MenuButton';
 import MenuContent from 'Components/Menu/MenuContent';
 import MenuItem from 'Components/Menu/MenuItem';
+import MonitorToggleButton from 'Components/MonitorToggleButton';
 import SpinnerIcon from 'Components/SpinnerIcon';
 import Table from 'Components/Table/Table';
 import TableBody from 'Components/Table/TableBody';
@@ -81,7 +82,6 @@ class StudioDetailsYear extends Component {
       isOrganizeModalOpen: false,
       isManageMoviesOpen: false,
       isHistoryModalOpen: false,
-      isInteractiveSearchModalOpen: false,
       lastToggledMovie: null
     };
   }
@@ -132,14 +132,6 @@ class StudioDetailsYear extends Component {
   //
   // Listeners
 
-  onInteractiveSearchPress = () => {
-    this.setState({ isInteractiveSearchModalOpen: true });
-  };
-
-  onInteractiveSearchModalClose = () => {
-    this.setState({ isInteractiveSearchModalOpen: false });
-  };
-
   onExpandPress = () => {
     const {
       year,
@@ -147,6 +139,17 @@ class StudioDetailsYear extends Component {
     } = this.props;
 
     this.props.onExpandPress(year, !isExpanded);
+  };
+
+  onMonitorYearPress = () => {
+    const { items, onMonitorMoviePress } = this.props;
+
+    const allMonitored = items.every((scene) => scene.monitored);
+    const newMonitoredState = !allMonitored;
+
+    items.forEach((scene) => {
+      onMonitorMoviePress(scene.id, newMonitoredState);
+    });
   };
 
   onMonitorMoviePress = (movieId, monitored, { shiftKey }) => {
@@ -190,6 +193,11 @@ class StudioDetailsYear extends Component {
       >
         <div className={styles.header}>
           <div className={styles.left}>
+            <MonitorToggleButton
+              monitored={monitoredMovieCount === totalMovieCount}
+              size={24}
+              onPress={this.onMonitorYearPress}
+            />
             <span className={styles.seasonNumber}>
               {year}
             </span>
@@ -271,18 +279,6 @@ class StudioDetailsYear extends Component {
 
                     {translate('Search')}
                   </MenuItem>
-
-                  <MenuItem
-                    onPress={this.onInteractiveSearchPress}
-                    isDisabled={!totalMovieCount}
-                  >
-                    <Icon
-                      className={styles.actionMenuIcon}
-                      name={icons.INTERACTIVE}
-                    />
-
-                    {translate('InteractiveSearch')}
-                  </MenuItem>
                 </MenuContent>
               </Menu> :
 
@@ -295,15 +291,6 @@ class StudioDetailsYear extends Component {
                   isSpinning={isSearching}
                   isDisabled={isSearching || !hasMonitoredMovies || !studioMonitored}
                   onPress={onSearchPress}
-                />
-
-                <IconButton
-                  className={styles.actionButton}
-                  name={icons.INTERACTIVE}
-                  title={translate('InteractiveSearchSeason')}
-                  size={24}
-                  isDisabled={!totalMovieCount}
-                  onPress={this.onInteractiveSearchPress}
                 />
               </div>
           }

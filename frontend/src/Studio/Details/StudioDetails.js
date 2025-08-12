@@ -2,6 +2,7 @@ import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
 import Alert from 'Components/Alert';
+import Delayed from 'Components/Delayed';
 import FieldSet from 'Components/FieldSet';
 import Icon from 'Components/Icon';
 import Label from 'Components/Label';
@@ -16,7 +17,6 @@ import PageToolbarSection from 'Components/Page/Toolbar/PageToolbarSection';
 import PageToolbarSeparator from 'Components/Page/Toolbar/PageToolbarSeparator';
 import Tooltip from 'Components/Tooltip/Tooltip';
 import { icons, kinds, sizes, tooltipPositions } from 'Helpers/Props';
-import MovieInteractiveSearchModalConnector from 'Movie/Search/MovieInteractiveSearchModalConnector';
 import QualityProfileNameConnector from 'Settings/Profiles/Quality/QualityProfileNameConnector';
 import DeleteStudioModalConnector from 'Studio/Delete/DeleteStudioModalConnector';
 import EditStudioModalConnector from 'Studio/Edit/EditStudioModalConnector';
@@ -53,7 +53,6 @@ class StudioDetails extends Component {
 
     this.state = {
       isEditMovieModalOpen: false,
-      isInteractiveSearchModalOpen: false,
       allExpanded: false,
       allCollapsed: false,
       expandedState: {},
@@ -96,14 +95,6 @@ class StudioDetails extends Component {
     this.setState({ isEditMovieModalOpen: false });
   };
 
-  onInteractiveSearchPress = () => {
-    this.setState({ isInteractiveSearchModalOpen: true });
-  };
-
-  onInteractiveSearchModalClose = () => {
-    this.setState({ isInteractiveSearchModalOpen: false });
-  };
-
   onTitleMeasure = ({ width }) => {
     this.setState({ titleWidth: width });
   };
@@ -137,8 +128,7 @@ class StudioDetails extends Component {
       touchStart < 50 ||
       this.props.isSidebarVisible ||
       this.state.isDeleteMovieModalOpen ||
-      this.state.isEditMovieModalOpen ||
-      this.state.isInteractiveSearchModalOpen
+      this.state.isEditMovieModalOpen
     ) {
       return;
     }
@@ -204,6 +194,7 @@ class StudioDetails extends Component {
       id,
       foreignId,
       title,
+      aliases,
       rootFolderPath,
       sizeOnDisk,
       qualityProfileId,
@@ -235,7 +226,6 @@ class StudioDetails extends Component {
     const {
       isEditMovieModalOpen,
       isDeleteMovieModalOpen,
-      isInteractiveSearchModalOpen,
       expandedState,
       allExpanded,
       allCollapsed
@@ -275,14 +265,6 @@ class StudioDetails extends Component {
               isSpinning={isSearching}
               title={undefined}
               onPress={onSearchPress}
-            />
-
-            <PageToolbarButton
-              label={translate('InteractiveSearch')}
-              iconName={icons.INTERACTIVE}
-              isSpinning={isSearching}
-              title={undefined}
-              onPress={this.onInteractiveSearchPress}
             />
 
             <PageToolbarSeparator />
@@ -522,6 +504,24 @@ class StudioDetails extends Component {
                         </span>
                       </Label>
                   }
+
+                  {
+                    !!aliases && !!aliases.length &&
+                      <Label
+                        className={styles.detailsInfoLabel}
+                        title={translate('Aliases')}
+                        size={sizes.LARGE}
+                      >
+                        <Icon
+                          name={icons.TAGS}
+                          size={17}
+                        />
+
+                        <span className={styles.aliases}>
+                          {aliases.join(', ')}
+                        </span>
+                      </Label>
+                  }
                 </div>
               </div>
             </div>
@@ -553,14 +553,16 @@ class StudioDetails extends Component {
                         {
                           years.slice(0).reverse().map((year) => {
                             return (
-                              <StudioDetailsYearConnector
-                                key={year}
-                                studioId={id}
-                                studioForeignId={foreignId}
-                                year={year}
-                                isExpanded={expandedState[year]}
-                                onExpandPress={this.onExpandPress}
-                              />
+                              <Delayed key={year} waitBeforeShow={50}>
+                                <StudioDetailsYearConnector
+                                  key={year}
+                                  studioId={id}
+                                  studioForeignId={foreignId}
+                                  year={year}
+                                  isExpanded={expandedState[year]}
+                                  onExpandPress={this.onExpandPress}
+                                />
+                              </Delayed>
                             );
                           })
                         }
@@ -585,11 +587,6 @@ class StudioDetails extends Component {
             onDeleteMoviePress={this.onDeleteMoviePress}
           />
 
-          <MovieInteractiveSearchModalConnector
-            isOpen={isInteractiveSearchModalOpen}
-            movieId={id}
-            onModalClose={this.onInteractiveSearchModalClose}
-          />
         </PageContentBody>
       </PageContent>
     );
@@ -600,6 +597,7 @@ StudioDetails.propTypes = {
   id: PropTypes.number.isRequired,
   foreignId: PropTypes.string,
   title: PropTypes.string.isRequired,
+  aliases: PropTypes.arrayOf(PropTypes.string),
   network: PropTypes.string.isRequired,
   rootFolderPath: PropTypes.string.isRequired,
   sizeOnDisk: PropTypes.number.isRequired,

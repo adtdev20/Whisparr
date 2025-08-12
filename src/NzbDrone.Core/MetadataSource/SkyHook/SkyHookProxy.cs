@@ -14,6 +14,7 @@ using NzbDrone.Core.MediaCover;
 using NzbDrone.Core.MetadataSource.SkyHook.Resource;
 using NzbDrone.Core.Movies;
 using NzbDrone.Core.Movies.AlternativeTitles;
+using NzbDrone.Core.Movies.Credits;
 using NzbDrone.Core.Movies.Performers;
 using NzbDrone.Core.Movies.Studios;
 using NzbDrone.Core.Parser;
@@ -33,12 +34,22 @@ namespace NzbDrone.Core.MetadataSource.SkyHook
         public SkyHookProxy(IHttpClient httpClient,
             IWhisparrCloudRequestBuilder requestBuilder,
             IConfigService configService,
+            IConfigFileProvider configFileProvider,
             IMovieService movieService,
             IMovieMetadataService movieMetadataService,
             Logger logger)
         {
             _httpClient = httpClient;
-            _whisparrMetadata = requestBuilder.WhisparrMetadata;
+
+            var whisparrMetadata = configFileProvider.WhisparrMetadata;
+            if (whisparrMetadata.IsNullOrWhiteSpace())
+            {
+                whisparrMetadata = "https://api.whisparr.com/v4/{route}";
+            }
+
+            logger.Info($"Using WhisparrMetadata {whisparrMetadata}");
+            _whisparrMetadata = new HttpRequestBuilder(whisparrMetadata)
+                .CreateFactory();
             _configService = configService;
             _movieService = movieService;
             _movieMetadataService = movieMetadataService;
@@ -375,6 +386,7 @@ namespace NzbDrone.Core.MetadataSource.SkyHook
             movie.Title = resource.Title;
             movie.CleanTitle = resource.Title.CleanMovieTitle();
             movie.SortTitle = Parser.Parser.NormalizeTitle(resource.Title);
+            movie.Code = resource.Code;
             movie.Overview = resource.Overview;
 
             movie.Website = resource.Homepage;
@@ -534,17 +546,26 @@ namespace NzbDrone.Core.MetadataSource.SkyHook
                     .Build();
 
                 request.AllowAutoRedirect = true;
-                request.SuppressHttpError = true;
 
-                var httpResponse = _httpClient.Get<List<MovieResource>>(request);
+                HttpResponse<List<MovieResource>> httpResponse;
+                try
+                {
+                    httpResponse = _httpClient.Get<List<MovieResource>>(request);
+                }
+                catch (HttpException ex)
+                {
+                    _logger.Warn(ex);
+                    throw new SkyHookException("Search for '{0}' failed. Unable to communicate with StashDb.", ex, title);
+                }
 
                 var performersAdded = new List<string>();
+                var studiosAdded = new List<string>();
 
                 foreach (var movie in httpResponse.Resource)
                 {
                     foreach (var performer in movie.Credits)
                     {
-                        if (performer.Performer.Name.ToLower().Contains(lowerTitle))
+                        if (performer.Performer?.Name != null && performer.Performer.Name.ToLower().Contains(lowerTitle))
                         {
                             var mappedPerformer = MapPerformer(performer.Performer);
 
@@ -556,9 +577,29 @@ namespace NzbDrone.Core.MetadataSource.SkyHook
                         }
                     }
 
+                    if (movie.Studio.Title.ToLower().Contains(lowerTitle))
+                    {
+                        var mappedStudio = MapStudio(movie.Studio);
+
+                        if (mappedStudio.ForeignId.IsNotNullOrWhiteSpace() && !studiosAdded.Contains(mappedStudio.ForeignId.ToLower()))
+                        {
+                            studiosAdded.Add(mappedStudio.ForeignId.ToLower());
+                            result.Add(mappedStudio);
+                        }
+                    }
+
                     result.Add(MapSearchResult(movie));
                 }
             }
+
+            // Sort results so exact matches come first
+            result = result.OrderByDescending(item => item switch
+            {
+                Movie movie => movie.MovieMetadata.Value.Title.ToLower() == lowerTitle,
+                Performer performer => performer.Name.ToLower() == lowerTitle,
+                Studio studio => studio.Title.ToLower() == lowerTitle,
+                _ => false
+            }).ToList();
 
             return result;
         }
@@ -739,6 +780,12 @@ namespace NzbDrone.Core.MetadataSource.SkyHook
 
                 return httpResponse.Resource.SelectList(MapSearchResult);
             }
+            catch (UnexpectedHtmlContentException ex)
+            {
+                _logger.Warn(ex);
+                _logger.Warn("Search for '{0}' failed. StashDb returned a HTML Response.", ex, title, ex.Message);
+                return new List<Movie>();
+            }
             catch (HttpException ex)
             {
                 _logger.Warn(ex);
@@ -748,6 +795,12 @@ namespace NzbDrone.Core.MetadataSource.SkyHook
             {
                 _logger.Warn(ex);
                 throw new SkyHookException("Search for '{0}' failed. Unable to communicate with StashDb.", ex, title, ex.Message);
+            }
+            catch (JsonException ex)
+            {
+                _logger.Warn(ex);
+                _logger.Warn("Search for '{0}' failed. StashDb returned a JSON response.", ex, title, ex.Message);
+                return new List<Movie>();
             }
             catch (Exception ex)
             {
@@ -763,6 +816,14 @@ namespace NzbDrone.Core.MetadataSource.SkyHook
             if (movie == null)
             {
                 movie = new Movie { MovieMetadata = MapMovie(result) };
+
+                if (result.ItemType == ItemType.Scene)
+                {
+                    foreach (var performer in result.Credits)
+                    {
+                        movie.MovieMetadata.Value.Credits.Add(MapCast(performer));
+                    }
+                }
             }
 
             return movie;
@@ -774,8 +835,8 @@ namespace NzbDrone.Core.MetadataSource.SkyHook
             {
                 Character = arg.Character,
                 Order = arg.Order,
-                CreditForeignId = arg.CreditId,
                 Type = CreditType.Cast,
+                PerformerForeignId = arg.Performer.ForeignIds.StashId,
                 Performer = new CreditPerformer
                 {
                     Name = arg.Performer.Name,
@@ -896,6 +957,7 @@ namespace NzbDrone.Core.MetadataSource.SkyHook
                 Title = studio.Title,
                 CleanTitle = studio.Title.CleanStudioTitle(),
                 SortTitle = Parser.Parser.NormalizeTitle(studio.Title),
+                Aliases = studio.Aliases,
                 Website = studio.Homepage,
                 ForeignId = studio.ForeignIds.StashId,
                 Network = studio.Network,
@@ -911,8 +973,8 @@ namespace NzbDrone.Core.MetadataSource.SkyHook
             {
                 Character = arg.Character,
                 Order = arg.Order,
-                CreditForeignId = $"{sceneForeignId} - {arg.Performer.ForeignIds.StashId}",
                 Type = CreditType.Cast,
+                PerformerForeignId = arg.Performer.ForeignIds.StashId,
                 Performer = new CreditPerformer
                 {
                     Name = arg.Performer.Name,

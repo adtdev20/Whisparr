@@ -94,10 +94,22 @@ export const defaultState = {
       isVisible: true
     },
     {
+      name: 'aliases',
+      label: () => translate('Aliases'),
+      isSortable: true,
+      isVisible: true
+    },
+    {
       name: 'tags',
       label: () => translate('Tags'),
       isSortable: false,
       isVisible: false
+    },
+    {
+      name: 'totalSceneCount',
+      label: () => translate('Scenes'),
+      isSortable: true,
+      isVisible: true
     },
     {
       name: 'actions',
@@ -134,6 +146,18 @@ export const defaultState = {
       name: 'title',
       label: () => translate('Title'),
       type: filterBuilderTypes.EXACT,
+      valueType: filterBuilderValueTypes.DEFAULT
+    },
+    {
+      name: 'sceneCount',
+      label: () => translate('SceneCount'),
+      type: filterBuilderTypes.NUMBER,
+      valueType: filterBuilderValueTypes.DEFAULT
+    },
+    {
+      name: 'totalSceneCount',
+      label: () => translate('TotalSceneCount'),
+      type: filterBuilderTypes.NUMBER,
       valueType: filterBuilderValueTypes.DEFAULT
     },
     {

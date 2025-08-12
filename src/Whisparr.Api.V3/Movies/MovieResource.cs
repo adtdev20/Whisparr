@@ -7,6 +7,7 @@ using NzbDrone.Core.DecisionEngine.Specifications;
 using NzbDrone.Core.Languages;
 using NzbDrone.Core.MediaCover;
 using NzbDrone.Core.Movies;
+using NzbDrone.Core.Movies.Credits;
 using NzbDrone.Core.Parser;
 using Whisparr.Api.V3.MovieFiles;
 using Whisparr.Api.V3.Movies;
@@ -18,6 +19,7 @@ namespace Whisparr.Api.V3.Movies
     {
         public MovieResource()
         {
+            Genres = new List<string>();
             Monitored = true;
         }
 
@@ -27,6 +29,7 @@ namespace Whisparr.Api.V3.Movies
 
         // View Only
         public string Title { get; set; }
+        public string Code { get; set; }
         public Language OriginalLanguage { get; set; }
         public string SortTitle { get; set; }
         public long? SizeOnDisk { get; set; }
@@ -84,6 +87,8 @@ namespace Whisparr.Api.V3.Movies
                 return null;
             }
 
+            var size = model.MovieFile?.Size ?? 0;
+
             var movieFile = model.MovieFile?.ToResource(model, upgradableSpecification, formatCalculationService);
 
             return new MovieResource
@@ -93,10 +98,12 @@ namespace Whisparr.Api.V3.Movies
                 TmdbId = model.TmdbId,
                 StashId = model.MovieMetadata.Value.StashId,
                 Title = model.Title,
+                Code = model.MovieMetadata.Value.Code,
                 OriginalLanguage = model.MovieMetadata.Value.OriginalLanguage,
                 SortTitle = model.Title.NormalizeTitle(),
                 ReleaseDate = model.MovieMetadata.Value.ReleaseDate,
 
+                SizeOnDisk = size,
                 Status = model.MovieMetadata.Value.Status,
                 Overview = model.MovieMetadata.Value.Overview,
 

@@ -9,9 +9,13 @@ using NzbDrone.Common.EnsureThat;
 using NzbDrone.Common.Http;
 using NzbDrone.Core.Exceptions;
 using NzbDrone.Core.ImportLists.ImportExclusions;
+using NzbDrone.Core.Messaging.Commands;
 using NzbDrone.Core.MetadataSource;
+using NzbDrone.Core.Movies.Commands;
+using NzbDrone.Core.Movies.Studios;
 using NzbDrone.Core.Organizer;
 using NzbDrone.Core.Parser;
+using NzbDrone.Core.RootFolders;
 
 namespace NzbDrone.Core.Movies
 {
@@ -21,30 +25,38 @@ namespace NzbDrone.Core.Movies
         List<Movie> AddMovies(List<Movie> newMovies, bool ignoreErrors = false);
     }
 
-    public class AddMovieService : IAddMovieService
+    public class AddMovieService :
+        IAddMovieService,
+        IExecute<AddMoviesCommand>
     {
         private readonly IMovieService _movieService;
+        private readonly IStudioService _studioService;
         private readonly IMovieMetadataService _movieMetadataService;
         private readonly IProvideMovieInfo _movieInfo;
         private readonly IBuildFileNames _fileNameBuilder;
         private readonly IAddMovieValidator _addMovieValidator;
         private readonly IImportExclusionsService _importExclusionService;
+        private readonly IRootFolderService _rootFolderService;
         private readonly Logger _logger;
 
         public AddMovieService(IMovieService movieService,
+                                IStudioService studioService,
                                 IMovieMetadataService movieMetadataService,
                                 IProvideMovieInfo movieInfo,
                                 IBuildFileNames fileNameBuilder,
                                 IAddMovieValidator addMovieValidator,
                                 ImportExclusionsService importExclusionsService,
+                                IRootFolderService rootFolderService,
                                 Logger logger)
         {
             _movieService = movieService;
+            _studioService = studioService;
             _movieMetadataService = movieMetadataService;
             _movieInfo = movieInfo;
             _fileNameBuilder = fileNameBuilder;
             _addMovieValidator = addMovieValidator;
             _importExclusionService = importExclusionsService;
+            _rootFolderService = rootFolderService;
             _logger = logger;
         }
 
@@ -93,6 +105,12 @@ namespace NzbDrone.Core.Movies
                     {
                         _logger.Debug("Foreign ID {0} was not added due to validation failure: Movie already exists on list", m.ForeignId);
                         continue;
+                    }
+
+                    if (m.RootFolderPath == null)
+                    {
+                        var rootFolder = _rootFolderService.GetBestRootFolderPath(m.Path);
+                        movie.RootFolderPath = rootFolder;
                     }
 
                     moviesToAdd.Add(movie);
@@ -197,34 +215,73 @@ namespace NzbDrone.Core.Movies
                 throw new ValidationException(validationResult.Errors);
             }
 
-            var excludedItems = _importExclusionService.GetAllExclusions();
-
             // Check if previosly excluded
-            if (excludedItems != null && !excludedItems.Where(x => x.ForeignId == newMovie.ForeignId).Any())
+            var type = newMovie.MovieMetadata.Value.ItemType == ItemType.Scene ? ImportExclusionType.Scene : ImportExclusionType.Movie;
+            if (!_importExclusionService.IsExcluded(newMovie.ForeignId, type))
             {
+                var newExclusion = new ImportExclusion { ForeignId = newMovie.ForeignId, Type = type, MovieTitle = newMovie.Title, MovieYear = newMovie.Year };
                 if (newMovie.MovieMetadata?.Value?.Studio != null)
                 {
                     var stashId = newMovie.MovieMetadata.Value.Studio.ForeignIds.StashId;
-                    var excludedStudio = excludedItems.Where(e => e.ForeignId == stashId && e.Type == ImportExclusionType.Studio).FirstOrDefault();
-                    if (excludedStudio != null)
+                    var excludedStudio = _importExclusionService.IsExcluded(stashId, ImportExclusionType.Studio);
+                    if (excludedStudio)
                     {
-                        var newExclusion = new ImportExclusion { ForeignId = newMovie.ForeignId, Type = newMovie.MovieMetadata.Value.ItemType == ItemType.Scene ? ImportExclusionType.Scene : ImportExclusionType.Movie, MovieTitle = newMovie.Title, MovieYear = newMovie.Year };
                         _importExclusionService.AddExclusion(newExclusion);
-                        throw new ValidationException($"Studio: {excludedStudio.MovieTitle} has been excluded");
+                        throw new ValidationException($"Studio: [{newMovie.MovieMetadata.Value.Studio.Title}] has been excluded");
+                    }
+                    else
+                    {
+                        var studio = _studioService.FindByForeignId(stashId);
+                        if (studio?.AfterDate != null)
+                        {
+                            var dateTime = (DateTime)studio.AfterDate;
+                            if (newMovie.MovieMetadata?.Value?.ReleaseDateUtc < dateTime)
+                            {
+                                _importExclusionService.AddExclusion(newExclusion);
+                                throw new ValidationException($"Date: [{newMovie.MovieMetadata?.Value.ReleaseDate}] has been excluded before {dateTime.ToString("yyyy-MM-dd")}");
+                            }
+                        }
                     }
                 }
 
-                var creditForeignIds = newMovie.MovieMetadata.Value.Credits.Select(c => c.CreditForeignId);
-                var excludedPerformers = excludedItems.Where(e => creditForeignIds.Contains(e.ForeignId) && e.Type == ImportExclusionType.Performer).ToList();
-                if (excludedPerformers.Any())
+                var performerForeignIds = newMovie.MovieMetadata.Value.Credits.Select(c => c.PerformerForeignId);
+                var excludedItems = _importExclusionService.GetAllByType(ImportExclusionType.Performer);
+                if (excludedItems != null)
                 {
-                    var newExclusion = new ImportExclusion { ForeignId = newMovie.ForeignId, Type = newMovie.MovieMetadata.Value.ItemType == ItemType.Scene ? ImportExclusionType.Scene : ImportExclusionType.Movie, MovieTitle = newMovie.Title, MovieYear = newMovie.Year };
+                    var excludedPerformers = excludedItems.Where(e => performerForeignIds.Contains(e.ForeignId)).ToList();
+                    if (excludedPerformers.Any())
+                    {
+                        _importExclusionService.AddExclusion(newExclusion);
+                        throw new ValidationException($"Performer: [{string.Join(",", excludedPerformers.Select(ep => ep.MovieTitle).ToList())}] has been excluded");
+                    }
+                }
+
+                var tagNames = newMovie.MovieMetadata.Value.Genres;
+                var excludedTags = _importExclusionService.GetAllByType(ImportExclusionType.Tag);
+                var exclusions = excludedTags.Where(e => tagNames.Contains(e.MovieTitle, StringComparer.OrdinalIgnoreCase)).ToList();
+
+                if (exclusions.Any())
+                {
                     _importExclusionService.AddExclusion(newExclusion);
-                    throw new ValidationException($"Performer: {string.Join(",", excludedPerformers.Select(ep => ep.MovieTitle).ToList())} has been excluded");
+                    throw new ValidationException($"Tag(s): [{string.Join(",", exclusions.Select(et => et.MovieTitle).ToList())}] excluded");
+                }
+            }
+            else
+            {
+                // Clean up exclusion on manual add
+                var exclusion = _importExclusionService.GetByForeignId(newMovie.ForeignId);
+                if (exclusion != null && exclusion.Type == type)
+                {
+                    _importExclusionService.RemoveExclusion(exclusion);
                 }
             }
 
             return newMovie;
+        }
+
+        public void Execute(AddMoviesCommand message)
+        {
+            AddMovies(message.Movies);
         }
     }
 }
